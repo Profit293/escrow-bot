@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: escrow-bot
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python main.py"
+    envVars:
+      - key: RENDER
+        value: "true"
+      - key: PORT
+        value: "10000"
+    envSecrets:
+      - key: BOT_TOKEN
+      - key: ENCRYPTION_KEY
+      - key: ADMIN_TELEGRAM_IDS
+      - key: ADMIN_USERNAME
+      - key: BLOCKCYPHER_API_KEY
+      - key: DATABASE_URL
