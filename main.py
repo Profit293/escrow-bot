@@ -97,7 +97,7 @@ async def start_webhook(bot: Bot, dp: Dispatcher):
         webhook_requests_handler = SimpleRequestHandler(
             dispatcher=dp,
             bot=bot,
-            secret_token=config.webhook_secret,  # Optional
+            # secret_token=config.webhook_secret,  # Optional
         )
         
         # Register webhook handler
