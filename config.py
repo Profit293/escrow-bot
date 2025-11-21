@@ -1,11 +1,50 @@
 from dotenv import load_dotenv
 import os
+import json
 
 load_dotenv()
+
+def load_deposit_addresses():
+    """Load deposit addresses from secret files or environment"""
+    # Пути, где Render размещает secret files
+    secret_paths = [
+        '/etc/secrets/deposit_addresses.json',  # Основной путь для secret files
+        'deposit_addresses.json',               # Резервный путь
+        './deposit_addresses.json'              # Текущая директория
+    ]
+    
+    for path in secret_paths:
+        try:
+            with open(path, 'r') as f:
+                addresses = json.load(f)
+                print(f"✅ Deposit addresses loaded from {path}")
+                return addresses
+        except FileNotFoundError:
+            continue
+        except json.JSONDecodeError as e:
+            print(f"❌ Error parsing JSON from {path}: {e}")
+            continue
+    
+    # Попробуем загрузить из переменной окружения как запасной вариант
+    env_json = os.getenv('DEPOSIT_ADDRESSES_JSON')
+    if env_json:
+        try:
+            addresses = json.loads(env_json)
+            print("✅ Deposit addresses loaded from environment variable")
+            return addresses
+        except json.JSONDecodeError as e:
+            print(f"❌ Error parsing JSON from environment: {e}")
+    
+    # Если файл не найден, создаем пустой
+    print("⚠️ Warning: deposit_addresses.json not found, using empty dict")
+    return {}
 
 class Config:
     bot_token = os.getenv("BOT_TOKEN", "")
     encryption_key = os.getenv("ENCRYPTION_KEY", "")
+    
+    # Загружаем deposit addresses
+    deposit_addresses = load_deposit_addresses()
     
     # Safe admin ID parsing
     admin_telegram_ids = []

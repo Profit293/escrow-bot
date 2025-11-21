@@ -27,6 +27,15 @@ async def main():
         config = load_config()
         logger.debug(f"Settings loaded: {config.__dict__}")
         
+        # ✅ ДОБАВЛЕНО: Проверяем загруженные адреса
+        if config.deposit_addresses:
+            logger.info(f"✅ Loaded {len(config.deposit_addresses)} deposit addresses")
+            # Логируем какие валюты загружены (без самих адресов для безопасности)
+            currencies = list(config.deposit_addresses.keys())
+            logger.info(f"✅ Available currencies: {currencies}")
+        else:
+            logger.warning("⚠️ No deposit addresses loaded")
+        
         # Token validation
         if not config.bot_token or len(config.bot_token) < 10:
             logger.error("❌ ERROR: Invalid bot token. Check .env file")
