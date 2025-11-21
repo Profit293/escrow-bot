@@ -9,14 +9,20 @@ config = load_config()
 logger = logging.getLogger("escrow_bot")
 
 async def init_db():
-    """Initialize database based on environment"""
+    """
+    Initialize database - always use SQLite for simplicity
+    """
     try:
         if config.is_render:
-            await _init_postgres_db()
+            logger.info("🔄 Initializing SQLite database on Render...")
         else:
-            await _init_sqlite_db()
+            logger.info("🔄 Initializing SQLite database locally...")
+        
+        await _init_sqlite_db()
+        logger.info("✅ Database initialized successfully")
+        
     except Exception as e:
-        logger.exception(f"❌ Critical error during database initialization: {str(e)}")
+        logger.error(f"❌ Critical error during database initialization: {str(e)}")
         raise
 
 async def _init_sqlite_db():
@@ -85,7 +91,7 @@ async def _init_sqlite_db():
         logger.exception(f"❌ Error initializing SQLite database: {str(e)}")
         raise
 
-async def _init_postgres_db():
+# async def _init_postgres_db():
     """Initialize PostgreSQL database for Render.com"""
     try:
         import asyncpg
