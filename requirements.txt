@@ -5,3 +5,4 @@ python-dotenv==1.0.0
 cryptography==41.0.7
 aiofiles==23.2.1
 aiosqlite==0.19.0
+requests==2.31.0
