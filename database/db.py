@@ -103,24 +103,45 @@ async def _load_deposit_addresses(db):
             logger.warning("⚠️ No deposit addresses in config")
             return
         
-        for crypto, address in config.deposit_addresses.items():
+        total_addresses = 0
+        
+        for crypto, address_data in config.deposit_addresses.items():
             crypto_upper = crypto.upper()
             if crypto_upper not in ["BTC", "LTC"]:
                 continue
-                
-            try:
-                await db.execute(
-                    "INSERT OR IGNORE INTO deposit_addresses (crypto_type, address) VALUES (?, ?)",
-                    (crypto_upper, address)
-                )
-                logger.debug(f"✅ Added address for {crypto_upper}: {address}")
-            except Exception as e:
-                logger.error(f"❌ Error inserting address {address}: {str(e)}")
+            
+            # Handle both single addresses and lists of addresses
+            addresses = []
+            if isinstance(address_data, str):
+                # Single address
+                addresses = [address_data]
+            elif isinstance(address_data, list):
+                # List of addresses
+                addresses = address_data
+            else:
+                logger.error(f"❌ Unexpected address format for {crypto_upper}: {type(address_data)}")
+                continue
+            
+            addresses_added = 0
+            for addr in addresses:
+                if not isinstance(addr, str):
+                    logger.error(f"❌ Skipping non-string address for {crypto_upper}: {addr}")
+                    continue
+                    
+                try:
+                    await db.execute(
+                        "INSERT OR IGNORE INTO deposit_addresses (crypto_type, address) VALUES (?, ?)",
+                        (crypto_upper, addr.strip())
+                    )
+                    addresses_added += 1
+                    logger.debug(f"✅ Added address for {crypto_upper}: {addr}")
+                except Exception as e:
+                    logger.error(f"❌ Error inserting address {addr}: {str(e)}")
+            
+            total_addresses += addresses_added
+            logger.info(f"✅ Added {addresses_added} addresses for {crypto_upper}")
         
-        # Count loaded addresses
-        cursor = await db.execute("SELECT COUNT(*) FROM deposit_addresses")
-        count = await cursor.fetchone()
-        logger.info(f"✅ Loaded {count[0]} deposit addresses into database")
+        logger.info(f"✅ Loaded {total_addresses} total deposit addresses into database")
             
     except Exception as e:
         logger.error(f"❌ Error loading deposit addresses: {str(e)}")
