@@ -1,6 +1,7 @@
 import re
 import string
 import random
+from datetime import datetime
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -48,6 +49,18 @@ def validate_crypto_amount(amount: str, crypto_type: str) -> float:
         return value
     except ValueError as e:
         raise ValueError(f"Invalid amount: {str(e)}") from e
+
+async def notify_admins(bot, message_text: str):
+    """Send notification to all admins"""
+    try:
+        for admin_id in config.admin_telegram_ids:
+            try:
+                await bot.send_message(admin_id, message_text, parse_mode="HTML")
+                logger.info(f"✅ Admin notification sent to {admin_id}")
+            except Exception as e:
+                logger.error(f"❌ Failed to send notification to admin {admin_id}: {e}")
+    except Exception as e:
+        logger.error(f"❌ Error in admin notification system: {e}")
 
 @router.message(F.text == "/create_deal")
 async def start_deal_creation(message: Message, state: FSMContext):
@@ -228,6 +241,7 @@ async def process_description(message: Message, state: FSMContext):
         parse_mode="HTML"
     )
     
+    # Notify seller
     try:
         if seller_data and seller_data.get("telegram_id"):
             await message.bot.send_message(
@@ -256,5 +270,24 @@ async def process_description(message: Message, state: FSMContext):
             f"🆔 Deal ID: <code>{deal_id}</code>",
             parse_mode="HTML"
         )
+    
+    # 🔔 NEW: NOTIFY ADMINS ABOUT NEW DEAL
+    try:
+        admin_message = (
+            "🆕 <b>New deal created</b>\n\n"
+            f"📋 <b>Deal ID</b>: <code>{deal_id}</code>\n"
+            f"👤 <b>Buyer</b>: @{buyer_username}\n"
+            f"👥 <b>Seller</b>: @{seller_username}\n"
+            f"💰 <b>Amount</b>: {data['amount']} {data['crypto_type']}\n"
+            f"💸 <b>With fee</b>: {data['amount_with_commission']:.8f} {data['crypto_type']}\n"
+            f"📦 <b>Item</b>: {message.text}\n"
+            f"📥 <b>Deposit address</b>: <code>{deposit_address}</code>\n"
+            f"⏰ <b>Time</b>: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            "<i>Checking</i>"
+        )
+        await notify_admins(message.bot, admin_message)
+        logger.info(f"✅ Admin notification sent for deal {deal_id}")
+    except Exception as e:
+        logger.error(f"❌ Failed to send admin notification for deal {deal_id}: {e}")
     
     await state.clear()

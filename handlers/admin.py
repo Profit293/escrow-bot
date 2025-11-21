@@ -1,3 +1,4 @@
+cat > handlers/admin.py << 'EOF'
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
 from database.db import get_deal_by_id, update_deal_status, get_user_by_id
@@ -15,6 +16,18 @@ logger = logging.getLogger("escrow_bot")
 
 if not config.blockcypher_api_key:
     logger.warning("⚠️ BlockCypher API key not configured! Check .env file")
+
+async def notify_admins(bot, message_text: str):
+    """Send notification to all admins"""
+    try:
+        for admin_id in config.admin_telegram_ids:
+            try:
+                await bot.send_message(admin_id, message_text, parse_mode="HTML")
+                logger.info(f"✅ Admin notification sent to {admin_id}")
+            except Exception as e:
+                logger.error(f"❌ Failed to send notification to admin {admin_id}: {e}")
+    except Exception as e:
+        logger.error(f"❌ Error in admin notification system: {e}")
 
 def check_transaction(crypto_type: str, address: str, expected_amount: float) -> dict:
     try:
@@ -182,6 +195,29 @@ async def handle_admin_confirm_payment(callback: CallbackQuery):
             else:
                 logger.warning(f"⚠️ Seller not found for deal {deal_id}")
             
+            # 🔔 NOTIFY ADMINS ABOUT PAYMENT CONFIRMATION
+            try:
+                buyer_data = await get_user_by_id(deal["buyer_id"])
+                seller_data = await get_user_by_id(deal["seller_id"])
+                
+                buyer_username = buyer_data["username"] if buyer_data else f"user_{deal['buyer_id']}"
+                seller_username = seller_data["username"] if seller_data else f"user_{deal['seller_id']}"
+                
+                admin_message = (
+                    "💰 <b>ПЛАТЕЖ ПОДТВЕРЖДЕН АДМИНИСТРАТОРОМ</b>\n\n"
+                    f"📋 <b>ID сделки</b>: <code>{deal_id}</code>\n"
+                    f"👤 <b>Покупатель</b>: @{buyer_username}\n"
+                    f"👥 <b>Продавец</b>: @{seller_username}\n"
+                    f"💵 <b>Сумма</b>: {tx_info['amount']:.6f} {deal['crypto_type']}\n"
+                    f"🔗 <b>Транзакция</b>: <code>{tx_info['tx_hash']}</code>\n"
+                    f"✅ <b>Подтверждений</b>: {tx_info['confirmations']}\n"
+                    f"⏰ <b>Время</b>: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                    "<i>Сделка переведена в статус 'Оплачено'</i>"
+                )
+                await notify_admins(callback.bot, admin_message)
+                logger.info(f"✅ Admin notification sent for payment confirmation {deal_id}")
+            except Exception as e:
+                logger.error(f"❌ Failed to send admin notification for payment {deal_id}: {e}")
             
             confirmation_msg = (
                 f"✅ <b>Payment confirmed!</b>\n\n"
@@ -250,6 +286,28 @@ async def handle_admin_confirm_shipment(callback: CallbackQuery):
         parse_mode="HTML"
     )
     
+    # 🔔 NOTIFY ADMINS ABOUT SHIPMENT CONFIRMATION
+    try:
+        buyer_data = await get_user_by_id(deal["buyer_id"])
+        seller_data = await get_user_by_id(deal["seller_id"])
+        
+        buyer_username = buyer_data["username"] if buyer_data else f"user_{deal['buyer_id']}"
+        seller_username = seller_data["username"] if seller_data else f"user_{deal['seller_id']}"
+        
+        admin_message = (
+            "🚚 <b>ОТПРАВКА ТОВАРА ПОДТВЕРЖДЕНА</b>\n\n"
+            f"📋 <b>ID сделки</b>: <code>{deal_id}</code>\n"
+            f"👤 <b>Покупатель</b>: @{buyer_username}\n"
+            f"👥 <b>Продавец</b>: @{seller_username}\n"
+            f"💰 <b>Сумма</b>: {deal['amount']} {deal['crypto_type']}\n"
+            f"⏰ <b>Время</b>: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            "<i>Сделка переведена в статус 'Товар отправлен'</i>"
+        )
+        await notify_admins(callback.bot, admin_message)
+        logger.info(f"✅ Admin notification sent for shipment confirmation {deal_id}")
+    except Exception as e:
+        logger.error(f"❌ Failed to send admin notification for shipment {deal_id}: {e}")
+    
     await callback.answer("✅ Shipment confirmed")
     await callback.message.edit_text(
         f"✅ <b>Shipment confirmed</b>\n\n"
@@ -283,6 +341,28 @@ async def handle_admin_release_funds(callback: CallbackQuery):
         except Exception as e:
             logger.error(f"❌ Error notifying seller when completing deal {deal_id}: {str(e)}")
     
+    # 🔔 NOTIFY ADMINS ABOUT FUNDS RELEASE
+    try:
+        buyer_data = await get_user_by_id(deal["buyer_id"])
+        seller_data = await get_user_by_id(deal["seller_id"])
+        
+        buyer_username = buyer_data["username"] if buyer_data else f"user_{deal['buyer_id']}"
+        seller_username = seller_data["username"] if seller_data else f"user_{deal['seller_id']}"
+        
+        admin_message = (
+            "💰 <b>СРЕДСТВА ПЕРЕВЕДЕНЫ ПРОДАВЦУ</b>\n\n"
+            f"📋 <b>ID сделки</b>: <code>{deal_id}</code>\n"
+            f"👤 <b>Покупатель</b>: @{buyer_username}\n"
+            f"👥 <b>Продавец</b>: @{seller_username}\n"
+            f"💵 <b>Сумма</b>: {deal['amount']} {deal['crypto_type']}\n"
+            f"⏰ <b>Время</b>: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            "<i>Сделка успешно завершена</i>"
+        )
+        await notify_admins(callback.bot, admin_message)
+        logger.info(f"✅ Admin notification sent for funds release {deal_id}")
+    except Exception as e:
+        logger.error(f"❌ Failed to send admin notification for funds release {deal_id}: {e}")
+    
     await callback.answer("✅ Funds released")
     await callback.message.edit_text(
         f"✅ <b>Funds transferred to seller</b>\n\n"
@@ -290,3 +370,4 @@ async def handle_admin_release_funds(callback: CallbackQuery):
         parse_mode="HTML",
         reply_markup=None
     )
+EOF
