@@ -39,13 +39,14 @@ async def handle_payment_confirmation(callback: CallbackQuery):
     
     # ✅ FIXED: Notify administrators with correct seller_username
     admin_message = (
-        f"🚨 <b>New payment for confirmation</b>\n\n"
+        f"🚨 <b>NEW PAYMENT AWAITING CONFIRMATION</b>\n\n"
         f"🆔 <b>Deal ID</b>: <code>{deal_id}</code>\n"
         f"💰 <b>Amount</b>: {deal['amount']} {deal['crypto_type']}\n"
         f"📦 <b>Item</b>: {description}\n"
         f"👤 <b>Buyer</b>: @{buyer_username}\n"
         f"🤝 <b>Seller</b>: @{seller_username}\n"
-        f"🔗 <b>Deposit address</b>: <code>{deal['deposit_address']}</code>"
+        f"🔗 <b>Deposit address</b>: <code>{deal['deposit_address']}</code>\n\n"
+        f"<i>Buyer reported payment. Please confirm via blockchain or manually.</i>"
     )
     
     await notify_admins(callback.bot, admin_message)
@@ -57,16 +58,19 @@ async def handle_payment_confirmation(callback: CallbackQuery):
             f"🆔 Deal ID: <code>{deal_id}</code>\n"
             f"💰 Amount: {deal['amount']} {deal['crypto_type']}\n"
             f"📦 Item: {description}\n\n"
-            f"Administrator will confirm payment within 30 minutes. "
-            f"After confirmation, you can ship the item."
+            f"⏳ <b>Administrator is verifying the payment...</b>\n\n"
+            f"You will receive another notification when payment is confirmed."
         )
         await notify_seller(callback.bot, seller, seller_message, deal_id)
     
     # Update user message
     await callback.answer("✅ Your payment has been sent for verification", show_alert=True)
     await callback.message.edit_text(
-        f"✅ Payment for deal <code>{deal_id}</code> has been sent for verification\n\n"
-        "Administrator will confirm payment within 30 minutes",
+        f"✅ <b>Payment reported for deal {deal_id}!</b>\n\n"
+        f"💰 Amount: {deal['amount']} {deal['crypto_type']}\n"
+        f"📦 Item: {description}\n\n"
+        f"⏳ <b>Administrator is verifying your payment...</b>\n\n"
+        f"You will receive a notification when payment is confirmed.",
         parse_mode="HTML",
         reply_markup=None
     )

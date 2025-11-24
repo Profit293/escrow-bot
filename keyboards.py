@@ -66,33 +66,6 @@ def get_blockchain_url(crypto_type: str, address: str) -> str:
         return f"https://live.blockcypher.com/ltc/address/{address}/"
     return "https://www.blockchain.com/explorer"
 
-def get_admin_action_keyboard(deal_id: str, action_type: str):
-    """Administrator actions keyboard"""
-    builder = InlineKeyboardMarkup(inline_keyboard=[])
-    
-    if action_type == "confirm_payment":
-        builder.inline_keyboard.append([
-            InlineKeyboardButton(text="✅ Confirm Payment", 
-                               callback_data=f"admin:confirm_payment:{deal_id}")
-        ])
-    elif action_type == "retry_payment":
-        builder.inline_keyboard.append([
-            InlineKeyboardButton(text="🔄 Check Again", 
-                               callback_data=f"admin:confirm_payment:{deal_id}")
-        ])
-    elif action_type == "shipment":
-        builder.inline_keyboard.append([
-            InlineKeyboardButton(text="✅ Confirm Shipment", 
-                               callback_data=f"admin:confirm_shipment:{deal_id}")
-        ])
-    elif action_type == "release":
-        builder.inline_keyboard.append([
-            InlineKeyboardButton(text="💰 Release Funds", 
-                               callback_data=f"admin:release_funds:{deal_id}")
-        ])
-    
-    return builder
-
 def get_admin_payment_keyboard(deal_id: str, crypto_type: str, deposit_address: str):
     """Administrator keyboard with payment confirmation and blockchain check"""
     builder = InlineKeyboardMarkup(inline_keyboard=[])
@@ -116,6 +89,37 @@ def get_admin_payment_keyboard(deal_id: str, crypto_type: str, deposit_address: 
     
     return builder
 
+def get_admin_force_confirm_keyboard(deal_id: str, crypto_type: str, deposit_address: str):
+    """Administrator keyboard with manual payment confirmation option"""
+    builder = InlineKeyboardMarkup(inline_keyboard=[])
+    
+    # Manual confirmation button
+    builder.inline_keyboard.append([
+        InlineKeyboardButton(
+            text="🔄 Confirm Manually", 
+            callback_data=f"admin:force_confirm_payment:{deal_id}"
+        )
+    ])
+    
+    # Recheck blockchain button
+    builder.inline_keyboard.append([
+        InlineKeyboardButton(
+            text="🔍 Check Blockchain Again", 
+            callback_data=f"admin:confirm_payment:{deal_id}"
+        )
+    ])
+    
+    # Blockchain check button
+    blockchain_url = get_blockchain_url(crypto_type, deposit_address)
+    builder.inline_keyboard.append([
+        InlineKeyboardButton(
+            text="📊 View in Blockchain", 
+            url=blockchain_url
+        )
+    ])
+    
+    return builder
+
 def get_admin_error_keyboard(deal_id: str, crypto_type: str, deposit_address: str):
     """Administrator keyboard for payment confirmation error"""
     builder = InlineKeyboardMarkup(inline_keyboard=[])
@@ -125,6 +129,14 @@ def get_admin_error_keyboard(deal_id: str, crypto_type: str, deposit_address: st
         InlineKeyboardButton(
             text="🔄 Check Again", 
             callback_data=f"admin:confirm_payment:{deal_id}"
+        )
+    ])
+    
+    # Manual confirmation button
+    builder.inline_keyboard.append([
+        InlineKeyboardButton(
+            text="✅ Confirm Manually", 
+            callback_data=f"admin:force_confirm_payment:{deal_id}"
         )
     ])
     
