@@ -158,7 +158,7 @@ async def process_seller(message: Message, state: FSMContext):
         "• Low transfer fees\n\n"
         "<i>Click the button with your preferred cryptocurrency</i>",
         parse_mode="HTML",
-        reply_murkup=get_inline_crypto_keyboard()
+        reply_markup=get_inline_crypto_keyboard()
     )
 
 @router.callback_query(F.data.startswith("crypto_"))
