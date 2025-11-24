@@ -54,12 +54,17 @@ def validate_crypto_amount(amount: str, crypto_type: str) -> float:
 async def notify_admins(bot, message_text: str):
     """Send notification to all admins"""
     try:
+        logger.info(f"🔔 Attempting to send admin notification: {message_text[:100]}...")
+        
         for admin_id in config.admin_telegram_ids:
             try:
                 await bot.send_message(admin_id, message_text, parse_mode="HTML")
                 logger.info(f"✅ Admin notification sent to {admin_id}")
             except Exception as e:
                 logger.error(f"❌ Failed to send notification to admin {admin_id}: {e}")
+                # Continue to other admins even if one fails
+                continue
+                
     except Exception as e:
         logger.error(f"❌ Error in admin notification system: {e}")
 
@@ -86,29 +91,28 @@ async def process_seller(message: Message, state: FSMContext):
         )
         return
     
-    # Проверяем существующего пользователя
+    # Check existing user
     seller = await get_user_by_username(seller_username)
     
-    # Если пользователь не найден, создаем постоянную запись в базе
+    # If user not found, create permanent record in database
     if not seller:
         try:
-            # Генерируем уникальный ID на основе времени
-            temp_seller_id = int(str(int(time.time() * 1000))[-9:])
+            # Generate unique negative ID for sellers without Telegram
+            temp_seller_id = -int(str(int(time.time() * 1000))[-9:])
             
-            # Создаем ПОСТОЯННОГО пользователя в базе
+            # Create PERMANENT user in database
             await create_user(
-                telegram_id=temp_seller_id,  # ✅ исправлено user_id → telegram_id
+                telegram_id=temp_seller_id,  # ✅ FIXED: user_id → telegram_id
                 username=seller_username
             )
             
-            # Проверяем что пользователь создан
+            # Verify user was created
             seller = await get_user_by_username(seller_username)
             if not seller:
                 raise Exception("User creation failed - user not found after creation")
                 
             logger.info(f"✅ Created PERMANENT seller record in database: @{seller_username} with ID: {temp_seller_id}")
             
-            # Сообщаем покупателю, что продавец добавлен в систему
             await message.answer(
                 f"✅ <b>Seller @{seller_username} added to system!</b>\n\n"
                 f"The seller has been permanently registered in our database.\n\n"
@@ -126,10 +130,10 @@ async def process_seller(message: Message, state: FSMContext):
             )
             return
     else:
-        # Продавец уже есть в системе
+        # Seller already exists in system
         logger.info(f"✅ Seller @{seller_username} already exists in database (ID: {seller['id']})")
         
-        # Если у продавца есть telegram_id, сообщаем что он получит уведомление
+        # If seller has telegram_id, notify that they will receive notifications
         if seller.get("telegram_id"):
             await message.answer(
                 f"✅ <b>Seller @{seller_username} is registered in the system!</b>\n\n"
@@ -137,11 +141,11 @@ async def process_seller(message: Message, state: FSMContext):
                 parse_mode="HTML"
             )
     
-    # Сохраняем данные продавца
+    # Save seller data
     await state.update_data(
-        seller_username=seller_username,
+        seller_username=seller_username,  # ✅ Ensure seller_username is saved
         seller_id=seller["id"],
-        seller_has_bot=seller.get("telegram_id") is not None  # Флаг - есть ли продавец в боте
+        seller_has_bot=seller.get("telegram_id") is not None
     )
     
     await message.answer(
@@ -154,7 +158,7 @@ async def process_seller(message: Message, state: FSMContext):
         "• Low transfer fees\n\n"
         "<i>Click the button with your preferred cryptocurrency</i>",
         parse_mode="HTML",
-        reply_markup=get_inline_crypto_keyboard()
+        reply_mup=get_inline_crypto_keyboard()
     )
 
 @router.callback_query(F.data.startswith("crypto_"))
@@ -239,20 +243,20 @@ async def process_description(message: Message, state: FSMContext):
     
     encrypted_description = encrypt_data(message.text)
     
-    # Получаем или создаем данные покупателя
+    # Get or create buyer data
     buyer = await get_user_by_id(message.from_user.id)
     if not buyer:
-        # Создаем ПОСТОЯННУЮ запись покупателя в базе
+        # Create PERMANENT buyer record in database
         try:
             await create_user(
-                telegram_id=message.from_user.id,  # ✅ исправлено user_id → telegram_id
+                telegram_id=message.from_user.id,  # ✅ FIXED: user_id → telegram_id
                 username=message.from_user.username or f"user_{message.from_user.id}"
             )
             buyer = await get_user_by_id(message.from_user.id)
             logger.info(f"✅ Created PERMANENT buyer record: {message.from_user.id}")
         except Exception as e:
             logger.error(f"❌ Failed to create buyer record: {str(e)}")
-            # Используем базовые данные если создание не удалось
+            # Use basic data if creation failed
             buyer = {
                 'id': message.from_user.id,
                 'username': message.from_user.username or f"user_{message.from_user.id}"
@@ -272,14 +276,20 @@ async def process_description(message: Message, state: FSMContext):
     
     await create_deal(deal_data)
     
-    # Получаем актуальные данные пользователей
+    # Get actual user data
     buyer_data = await get_user_by_id(deal_data["buyer_id"])
     seller_data = await get_user_by_id(deal_data["seller_id"])
     
     buyer_username = buyer_data["username"] if buyer_data else f"user_{deal_data['buyer_id']}"
-    seller_username = seller_data["username"] if seller_data else f"user_{deal_data['seller_id']}"
     
-    # Основное сообщение о создании сделки
+    # ✅ FIXED: Ensure we have seller_username from multiple sources
+    seller_username = data.get("seller_username")
+    if not seller_username and seller_data:
+        seller_username = seller_data.get("username")
+    if not seller_username:
+        seller_username = f"user_{deal_data['seller_id']}"
+    
+    # Main deal creation message
     deal_info = (
         f"✅ <b>DEAL CREATED!</b>\n\n"
         f"🆔 <b>Deal ID</b>: <code>{deal_id}</code>\n"
@@ -304,11 +314,11 @@ async def process_description(message: Message, state: FSMContext):
         parse_mode="HTML"
     )
     
-    # 🔄 ДВА ВАРИАНТА: УВЕДОМЛЕНИЕ ПРОДАВЦА
+    # 🔄 TWO OPTIONS: SELLER NOTIFICATION
     seller_notified = False
     
     if seller_data and seller_data.get("telegram_id"):
-        # ВАРИАНТ 1: Продавец есть в системе - отправляем уведомление
+        # OPTION 1: Seller is in system - send notification
         try:
             await message.bot.send_message(
                 seller_data["telegram_id"],
@@ -333,7 +343,7 @@ async def process_description(message: Message, state: FSMContext):
         except Exception as e:
             logger.error(f"❌ Error notifying seller via bot for deal {deal_id}: {str(e)}")
     else:
-        # ВАРИАНТ 2: Продавца нет в системе - просим покупателя отправить ссылку
+        # OPTION 2: Seller not in system - ask buyer to send link
         bot_username = (await message.bot.get_me()).username
         bot_link = f"https://t.me/{bot_username}"
         
@@ -352,7 +362,7 @@ async def process_description(message: Message, state: FSMContext):
         )
         logger.info(f"ℹ️ Seller @{seller_username} not in bot - buyer instructed to share link for deal {deal_id}")
     
-    # 🔔 УВЕДОМЛЯЕМ АДМИНОВ О НОВОЙ СДЕЛКЕ
+    # 🔔 NOTIFY ADMINS ABOUT NEW DEAL
     try:
         seller_status = "Active in bot" if seller_notified else "Registered in DB but not in bot"
         
@@ -360,7 +370,7 @@ async def process_description(message: Message, state: FSMContext):
             "🆕 <b>NEW DEAL CREATED</b>\n\n"
             f"📋 <b>Deal ID</b>: <code>{deal_id}</code>\n"
             f"👤 <b>Buyer</b>: @{buyer_username}\n"
-            f"👥 <b>Seller</b>: @{seller_username}\n"
+            f"👥 <b>Seller</b>: @{seller_username}\n"  # ✅ FIXED: Now seller_username is guaranteed
             f"💰 <b>Amount</b>: {data['amount']} {data['crypto_type']}\n"
             f"💸 <b>With fee</b>: {data['amount_with_commission']:.8f} {data['crypto_type']}\n"
             f"📦 <b>Item</b>: {message.text}\n"
