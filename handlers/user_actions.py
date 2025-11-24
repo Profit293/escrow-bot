@@ -37,7 +37,7 @@ async def handle_payment_confirmation(callback: CallbackQuery):
     buyer_username = buyer["username"] if buyer else f"user_{deal['buyer_id']}"
     seller_username = seller["username"] if seller else f"user_{deal['seller_id']}"
     
-    # ✅ FIXED: Notify administrators with correct seller_username
+    # ✅ FIXED: Notify administrators with keyboard for payment confirmation
     admin_message = (
         f"🚨 <b>NEW PAYMENT AWAITING CONFIRMATION</b>\n\n"
         f"🆔 <b>Deal ID</b>: <code>{deal_id}</code>\n"
@@ -48,8 +48,21 @@ async def handle_payment_confirmation(callback: CallbackQuery):
         f"🔗 <b>Deposit address</b>: <code>{deal['deposit_address']}</code>\n\n"
         f"<i>Buyer reported payment. Please confirm via blockchain or manually.</i>"
     )
+
+    # ✅ FIXED: Send to each admin individually with keyboard
+    admin_keyboard = get_admin_payment_keyboard(deal_id, deal["crypto_type"], deal["deposit_address"])
     
-    await notify_admins(callback.bot, admin_message)
+    for admin_id in config.admin_telegram_ids:
+        try:
+            await callback.bot.send_message(
+                admin_id,
+                admin_message,
+                parse_mode="HTML",
+                reply_markup=admin_keyboard
+            )
+            logger.info(f"✅ Admin notification with buttons sent to {admin_id}")
+        except Exception as e:
+            logger.error(f"❌ Failed to send notification to admin {admin_id}: {e}")
     
     # ✅ FIXED: Notify seller if they are registered in bot
     if seller:
@@ -100,7 +113,7 @@ async def handle_contact_admin(callback: CallbackQuery):
             f"Message: {callback.message.text}"
         )
     
-    # Send to administrators
+    # Send to administrators (without keyboard for help requests)
     await notify_admins(callback.bot, message_text)
     
     # Show information to user
