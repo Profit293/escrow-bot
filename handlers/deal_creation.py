@@ -89,17 +89,17 @@ async def process_seller(message: Message, state: FSMContext):
     # Проверяем существующего пользователя
     seller = await get_user_by_username(seller_username)
     
-    # Если пользователь не найден, создаем нового
+    # Если пользователь не найден, создаем постоянную запись в базе
     if not seller:
         try:
             # Генерируем уникальный ID на основе времени
             temp_seller_id = int(str(int(time.time() * 1000))[-9:])
             
-            # Создаем пользователя с отдельными аргументами
+            # Создаем ПОСТОЯННОГО пользователя в базе
             await create_user(
                 user_id=temp_seller_id,
                 username=seller_username,
-                telegram_id=None,
+                telegram_id=None,  # Отсутствует telegram_id - значит не зарегистрирован в боте
                 first_name=f"Seller_{seller_username}",
                 last_name=None,
                 registration_date=datetime.now().isoformat()
@@ -110,29 +110,42 @@ async def process_seller(message: Message, state: FSMContext):
             if not seller:
                 raise Exception("User creation failed - user not found after creation")
                 
-            logger.info(f"✅ Successfully auto-registered seller: @{seller_username} with ID: {temp_seller_id}")
+            logger.info(f"✅ Created PERMANENT seller record in database: @{seller_username} with ID: {temp_seller_id}")
             
+            # Сообщаем покупателю, что продавец добавлен в систему
             await message.answer(
-                f"✅ <b>Seller @{seller_username} automatically registered!</b>\n\n"
-                f"They will be able to receive deal notifications once they start the bot.",
+                f"✅ <b>Seller @{seller_username} added to system!</b>\n\n"
+                f"The seller has been permanently registered in our database.\n\n"
+                f"📝 <b>Please send them the bot link and inform about the deal.</b>",
                 parse_mode="HTML"
             )
             
         except Exception as e:
-            logger.error(f"❌ Failed to auto-register seller @{seller_username}: {str(e)}")
+            logger.error(f"❌ Failed to create seller record @{seller_username}: {str(e)}")
             await message.answer(
-                f"❌ <b>Could not register seller @{seller_username}</b>\n\n"
-                f"Please ask the seller to start the bot first using /start command, then try again.\n\n"
-                f"<i>Error details: {str(e)}</i>",
+                f"❌ <b>System error</b>\n\n"
+                f"Please try again or contact administrator.",
                 parse_mode="HTML",
                 reply_markup=get_contact_admin_keyboard("registration_error")
             )
             return
+    else:
+        # Продавец уже есть в системе
+        logger.info(f"✅ Seller @{seller_username} already exists in database (ID: {seller['id']})")
+        
+        # Если у продавца есть telegram_id, сообщаем что он получит уведомление
+        if seller.get("telegram_id"):
+            await message.answer(
+                f"✅ <b>Seller @{seller_username} is registered in the system!</b>\n\n"
+                f"They will receive automatic notifications about this deal.",
+                parse_mode="HTML"
+            )
     
     # Сохраняем данные продавца
     await state.update_data(
         seller_username=seller_username,
-        seller_id=seller["id"]
+        seller_id=seller["id"],
+        seller_has_bot=seller.get("telegram_id") is not None  # Флаг - есть ли продавец в боте
     )
     
     await message.answer(
@@ -233,7 +246,7 @@ async def process_description(message: Message, state: FSMContext):
     # Получаем или создаем данные покупателя
     buyer = await get_user_by_id(message.from_user.id)
     if not buyer:
-        # Создаем запись покупателя если не существует
+        # Создаем ПОСТОЯННУЮ запись покупателя в базе
         try:
             await create_user(
                 user_id=message.from_user.id,
@@ -244,6 +257,7 @@ async def process_description(message: Message, state: FSMContext):
                 registration_date=datetime.now().isoformat()
             )
             buyer = await get_user_by_id(message.from_user.id)
+            logger.info(f"✅ Created PERMANENT buyer record: {message.from_user.id}")
         except Exception as e:
             logger.error(f"❌ Failed to create buyer record: {str(e)}")
             # Используем базовые данные если создание не удалось
@@ -273,6 +287,7 @@ async def process_description(message: Message, state: FSMContext):
     buyer_username = buyer_data["username"] if buyer_data else f"user_{deal_data['buyer_id']}"
     seller_username = seller_data["username"] if seller_data else f"user_{deal_data['seller_id']}"
     
+    # Основное сообщение о создании сделки
     deal_info = (
         f"✅ <b>DEAL CREATED!</b>\n\n"
         f"🆔 <b>Deal ID</b>: <code>{deal_id}</code>\n"
@@ -297,10 +312,12 @@ async def process_description(message: Message, state: FSMContext):
         parse_mode="HTML"
     )
     
-    # Уведомляем продавца (если он зарегистрирован в боте)
+    # 🔄 ДВА ВАРИАНТА: УВЕДОМЛЕНИЕ ПРОДАВЦА
     seller_notified = False
-    try:
-        if seller_data and seller_data.get("telegram_id"):
+    
+    if seller_data and seller_data.get("telegram_id"):
+        # ВАРИАНТ 1: Продавец есть в системе - отправляем уведомление
+        try:
             await message.bot.send_message(
                 seller_data["telegram_id"],
                 (
@@ -320,23 +337,32 @@ async def process_description(message: Message, state: FSMContext):
                 reply_markup=get_deal_info_keyboard(deal_id, "seller", deposit_address, data["crypto_type"])
             )
             seller_notified = True
-    except Exception as e:
-        logger.error(f"❌ Error notifying seller for deal {deal_id}: {str(e)}")
-    
-    # Информируем покупателя о статусе уведомления продавца
-    if not seller_notified:
+            logger.info(f"✅ Seller notified via bot for deal {deal_id}")
+        except Exception as e:
+            logger.error(f"❌ Error notifying seller via bot for deal {deal_id}: {str(e)}")
+    else:
+        # ВАРИАНТ 2: Продавца нет в системе - просим покупателя отправить ссылку
+        bot_username = (await message.bot.get_me()).username
+        bot_link = f"https://t.me/{bot_username}"
+        
         await message.answer(
-            f"📝 <b>Note about seller</b>\n\n"
-            f"Seller @{seller_username} has not started the bot yet.\n"
-            f"Please inform them manually about the deal:\n"
-            f"🆔 Deal ID: <code>{deal_id}</code>\n\n"
-            f"They need to start the bot with /start to receive future notifications.",
+            f"📣 <b>Seller is not in the system</b>\n\n"
+            f"Seller @{seller_username} is registered in our database but hasn't started the bot yet.\n\n"
+            f"🔗 <b>Please send them this bot link:</b>\n"
+            f"<code>{bot_link}</code>\n\n"
+            f"📝 <b>And inform them about the deal:</b>\n"
+            f"• Deal ID: <code>{deal_id}</code>\n"
+            f"• Amount: {data['amount']} {data['crypto_type']}\n"
+            f"• Item: {message.text}\n\n"
+            f"Once they start the bot, they will be automatically connected to this deal "
+            f"and will receive all future notifications.",
             parse_mode="HTML"
         )
+        logger.info(f"ℹ️ Seller @{seller_username} not in bot - buyer instructed to share link for deal {deal_id}")
     
     # 🔔 УВЕДОМЛЯЕМ АДМИНОВ О НОВОЙ СДЕЛКЕ
     try:
-        seller_status = "Registered in bot" if seller_notified else "Needs to register"
+        seller_status = "Active in bot" if seller_notified else "Registered in DB but not in bot"
         
         admin_message = (
             "🆕 <b>NEW DEAL CREATED</b>\n\n"
