@@ -1,9 +1,10 @@
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
-from database.db import get_deal_by_id, update_deal_status
+from database.db import get_deal_by_id, update_deal_status, get_user_by_id
 from utils.crypto_utils import decrypt_data
+from utils.notifications import notify_admins, notify_seller
 from config import load_config
-from keyboards import get_admin_payment_keyboard, get_blockchain_url
+from keyboards import get_admin_payment_keyboard
 import logging
 
 router = Router()
@@ -29,27 +30,37 @@ async def handle_payment_confirmation(callback: CallbackQuery):
     # Update deal status
     await update_deal_status(deal_id, "PAID_WAITING_ADMIN")
     
-    # Notify administrators
-    for admin_id in config.admin_telegram_ids:
-        try:
-            await callback.bot.send_message(
-                admin_id,
-                f"🚨 <b>New payment for confirmation</b>\n\n"
-                f"🆔 <b>Deal ID</b>: <code>{deal_id}</code>\n"
-                f"💰 <b>Amount</b>: {deal['amount']} {deal['crypto_type']}\n"
-                f"📦 <b>Item</b>: {description}\n"
-                f"👤 <b>Buyer</b>: @{callback.from_user.username or callback.from_user.id}\n"
-                f"🤝 <b>Seller</b>: @{deal['seller_username']}\n"
-                f"🔗 <b>Deposit address</b>: <code>{deal['deposit_address']}</code>",
-                parse_mode="HTML",
-                reply_markup=get_admin_payment_keyboard(
-                    deal_id, 
-                    deal["crypto_type"],
-                    deal["deposit_address"]
-                )
-            )
-        except Exception as e:
-            logger.error(f"❌ Error sending notification to admin {admin_id}: {str(e)}")
+    # Get user data for notifications
+    buyer = await get_user_by_id(deal["buyer_id"])
+    seller = await get_user_by_id(deal["seller_id"])
+    
+    buyer_username = buyer["username"] if buyer else f"user_{deal['buyer_id']}"
+    seller_username = seller["username"] if seller else f"user_{deal['seller_id']}"
+    
+    # ✅ FIXED: Notify administrators with correct seller_username
+    admin_message = (
+        f"🚨 <b>New payment for confirmation</b>\n\n"
+        f"🆔 <b>Deal ID</b>: <code>{deal_id}</code>\n"
+        f"💰 <b>Amount</b>: {deal['amount']} {deal['crypto_type']}\n"
+        f"📦 <b>Item</b>: {description}\n"
+        f"👤 <b>Buyer</b>: @{buyer_username}\n"
+        f"🤝 <b>Seller</b>: @{seller_username}\n"
+        f"🔗 <b>Deposit address</b>: <code>{deal['deposit_address']}</code>"
+    )
+    
+    await notify_admins(callback.bot, admin_message)
+    
+    # ✅ FIXED: Notify seller if they are registered in bot
+    if seller:
+        seller_message = (
+            f"💰 <b>Buyer reported payment for deal {deal_id}!</b>\n\n"
+            f"🆔 Deal ID: <code>{deal_id}</code>\n"
+            f"💰 Amount: {deal['amount']} {deal['crypto_type']}\n"
+            f"📦 Item: {description}\n\n"
+            f"Administrator will confirm payment within 30 minutes. "
+            f"After confirmation, you can ship the item."
+        )
+        await notify_seller(callback.bot, seller, seller_message, deal_id)
     
     # Update user message
     await callback.answer("✅ Your payment has been sent for verification", show_alert=True)
@@ -86,15 +97,7 @@ async def handle_contact_admin(callback: CallbackQuery):
         )
     
     # Send to administrators
-    for admin_id in config.admin_telegram_ids:
-        try:
-            await callback.bot.send_message(
-                admin_id,
-                message_text,
-                parse_mode="HTML"
-            )
-        except Exception as e:
-            logger.error(f"❌ Error sending help request to admin {admin_id}: {str(e)}")
+    await notify_admins(callback.bot, message_text)
     
     # Show information to user
     if config.admin_username:

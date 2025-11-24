@@ -77,13 +77,4 @@ async def process_deal_id(message: Message):
         parse_mode="HTML"
     )
 
-@router.callback_query(F.data.startswith("contact_admin:"))
-async def contact_admin(callback: CallbackQuery):
-    deal_id = callback.data.split(":")[1]
-    await callback.message.answer(
-        f"🆘 <b>Contact administrator</b>\n\n"
-        f"🆔 Deal ID: <code>{deal_id}</code>\n\n"
-        "Write your message and the administrator will contact you shortly.",
-        parse_mode="HTML",
-        reply_markup=get_contact_admin_keyboard(deal_id)
-    )
+# ⚠️ УДАЛЕН дублирующий обработчик contact_admin - он теперь в user_actions.py

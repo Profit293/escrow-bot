@@ -2,6 +2,7 @@ from aiogram import Router, F
 from aiogram.types import CallbackQuery
 from database.db import get_deal_by_id, update_deal_status, get_user_by_id
 from utils.crypto_utils import decrypt_data
+from utils.notifications import notify_admins, notify_seller
 from config import load_config
 from keyboards import get_admin_error_keyboard, get_blockchain_url
 import logging
@@ -15,18 +16,6 @@ logger = logging.getLogger("escrow_bot")
 
 if not config.blockcypher_api_key:
     logger.warning("⚠️ BlockCypher API key not configured! Check .env file")
-
-async def notify_admins(bot, message_text: str):
-    """Send notification to all admins"""
-    try:
-        for admin_id in config.admin_telegram_ids:
-            try:
-                await bot.send_message(admin_id, message_text, parse_mode="HTML")
-                logger.info(f"✅ Admin notification sent to {admin_id}")
-            except Exception as e:
-                logger.error(f"❌ Failed to send notification to admin {admin_id}: {e}")
-    except Exception as e:
-        logger.error(f"❌ Error in admin notification system: {e}")
 
 def check_transaction(crypto_type: str, address: str, expected_amount: float) -> dict:
     try:
@@ -182,15 +171,11 @@ async def handle_admin_confirm_payment(callback: CallbackQuery):
             seller = await get_user_by_id(deal["seller_id"])
             
             if seller:
-                try:
-                    await callback.bot.send_message(
-                        seller["telegram_id"],
-                        f"💰 Deal {deal_id} is paid!\n\n"
-                        f"Send the item to the buyer and click 'Item shipped' in the deal.",
-                        parse_mode="HTML"
-                    )
-                except Exception as e:
-                    logger.error(f"❌ Error notifying seller {seller.get('username', 'unknown')}: {str(e)}")
+                seller_message = (
+                    f"💰 Deal {deal_id} is paid!\n\n"
+                    f"Send the item to the buyer and click 'Item shipped' in the deal."
+                )
+                await notify_seller(callback.bot, seller, seller_message, deal_id)
             else:
                 logger.warning(f"⚠️ Seller not found for deal {deal_id}")
             
@@ -300,7 +285,7 @@ async def handle_admin_confirm_shipment(callback: CallbackQuery):
             f"👥 <b>Продавец</b>: @{seller_username}\n"
             f"💰 <b>Сумма</b>: {deal['amount']} {deal['crypto_type']}\n"
             f"⏰ <b>Время</b>: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-            "<i>Сделка переведена в статус 'Товар отправлен'</i>"
+            "<i>Сделка переведена в статус 'Товаар отправлен'</i>"
         )
         await notify_admins(callback.bot, admin_message)
         logger.info(f"✅ Admin notification sent for shipment confirmation {deal_id}")
@@ -329,16 +314,12 @@ async def handle_admin_release_funds(callback: CallbackQuery):
     seller = await get_user_by_id(deal["seller_id"])
     
     if seller:
-        try:
-            await callback.bot.send_message(
-                seller["telegram_id"],
-                f"🎉 <b>Funds successfully transferred!</b>\n\n"
-                f"🆔 Deal ID: {deal_id}\n"
-                f"💰 Amount: {deal['amount']} {deal['crypto_type']}",
-                parse_mode="HTML"
-            )
-        except Exception as e:
-            logger.error(f"❌ Error notifying seller when completing deal {deal_id}: {str(e)}")
+        seller_message = (
+            f"🎉 <b>Funds successfully transferred!</b>\n\n"
+            f"🆔 Deal ID: {deal_id}\n"
+            f"💰 Amount: {deal['amount']} {deal['crypto_type']}"
+        )
+        await notify_seller(callback.bot, seller, seller_message, deal_id)
     
     # 🔔 NOTIFY ADMINS ABOUT FUNDS RELEASE
     try:

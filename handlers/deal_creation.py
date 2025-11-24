@@ -9,6 +9,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery
 from database.db import get_next_deposit_address, create_deal, create_user, get_user_by_username, get_user_by_id
 from utils.crypto_utils import encrypt_data
+from utils.notifications import notify_admins, notify_seller
 from keyboards import (
     get_inline_crypto_keyboard,
     get_deal_info_keyboard,
@@ -51,23 +52,6 @@ def validate_crypto_amount(amount: str, crypto_type: str) -> float:
     except ValueError as e:
         raise ValueError(f"Invalid amount: {str(e)}") from e
 
-async def notify_admins(bot, message_text: str):
-    """Send notification to all admins"""
-    try:
-        logger.info(f"🔔 Attempting to send admin notification: {message_text[:100]}...")
-        
-        for admin_id in config.admin_telegram_ids:
-            try:
-                await bot.send_message(admin_id, message_text, parse_mode="HTML")
-                logger.info(f"✅ Admin notification sent to {admin_id}")
-            except Exception as e:
-                logger.error(f"❌ Failed to send notification to admin {admin_id}: {e}")
-                # Continue to other admins even if one fails
-                continue
-                
-    except Exception as e:
-        logger.error(f"❌ Error in admin notification system: {e}")
-
 @router.message(F.text == "/create_deal")
 async def start_deal_creation(message: Message, state: FSMContext):
     await message.answer(
@@ -102,7 +86,7 @@ async def process_seller(message: Message, state: FSMContext):
             
             # Create PERMANENT user in database
             await create_user(
-                telegram_id=temp_seller_id,  # ✅ FIXED: user_id → telegram_id
+                telegram_id=temp_seller_id,
                 username=seller_username
             )
             
@@ -143,7 +127,7 @@ async def process_seller(message: Message, state: FSMContext):
     
     # Save seller data
     await state.update_data(
-        seller_username=seller_username,  # ✅ Ensure seller_username is saved
+        seller_username=seller_username,
         seller_id=seller["id"],
         seller_has_bot=seller.get("telegram_id") is not None
     )
@@ -249,7 +233,7 @@ async def process_description(message: Message, state: FSMContext):
         # Create PERMANENT buyer record in database
         try:
             await create_user(
-                telegram_id=message.from_user.id,  # ✅ FIXED: user_id → telegram_id
+                telegram_id=message.from_user.id,
                 username=message.from_user.username or f"user_{message.from_user.id}"
             )
             buyer = await get_user_by_id(message.from_user.id)
@@ -317,50 +301,48 @@ async def process_description(message: Message, state: FSMContext):
     # 🔄 TWO OPTIONS: SELLER NOTIFICATION
     seller_notified = False
     
-    if seller_data and seller_data.get("telegram_id"):
-        # OPTION 1: Seller is in system - send notification
-        try:
-            await message.bot.send_message(
-                seller_data["telegram_id"],
-                (
-                    f"🛒 <b>New deal created for you!</b>\n\n"
-                    f"🆔 <b>Deal ID</b>: <code>{deal_id}</code>\n"
-                    f"💰 <b>Amount</b>: {data['amount']} {data['crypto_type']}\n"
-                    f"💸 <b>Amount to pay</b>: {data['amount_with_commission']:.8f} {data['crypto_type']}\n"
-                    f"   • Including 2% service fee\n"
-                    f"📦 <b>Item</b>: {message.text}\n"
-                    f"👤 <b>Buyer</b>: @{buyer_username}\n\n"
-                    f"ℹ️ <b>Actions</b>:\n"
-                    f"• Wait for payment confirmation from administrator\n"
-                    f"• After confirmation, ship the item\n"
-                    f"• Click 'Item shipped' in the deal"
-                ),
-                parse_mode="HTML",
-                reply_markup=get_deal_info_keyboard(deal_id, "seller", deposit_address, data["crypto_type"])
-            )
-            seller_notified = True
-            logger.info(f"✅ Seller notified via bot for deal {deal_id}")
-        except Exception as e:
-            logger.error(f"❌ Error notifying seller via bot for deal {deal_id}: {str(e)}")
-    else:
-        # OPTION 2: Seller not in system - ask buyer to send link
-        bot_username = (await message.bot.get_me()).username
-        bot_link = f"https://t.me/{bot_username}"
-        
-        await message.answer(
-            f"📣 <b>Seller is not in the system</b>\n\n"
-            f"Seller @{seller_username} is registered in our database but hasn't started the bot yet.\n\n"
-            f"🔗 <b>Please send them this bot link:</b>\n"
-            f"<code>{bot_link}</code>\n\n"
-            f"📝 <b>And inform them about the deal:</b>\n"
-            f"• Deal ID: <code>{deal_id}</code>\n"
-            f"• Amount: {data['amount']} {data['crypto_type']}\n"
-            f"• Item: {message.text}\n\n"
-            f"Once they start the bot, they will be automatically connected to this deal "
-            f"and will receive all future notifications.",
-            parse_mode="HTML"
+    if seller_data:
+        seller_message = (
+            f"🛒 <b>New deal created for you!</b>\n\n"
+            f"🆔 <b>Deal ID</b>: <code>{deal_id}</code>\n"
+            f"💰 <b>Amount</b>: {data['amount']} {data['crypto_type']}\n"
+            f"💸 <b>Amount to pay</b>: {data['amount_with_commission']:.8f} {data['crypto_type']}\n"
+            f"   • Including 2% service fee\n"
+            f"📦 <b>Item</b>: {message.text}\n"
+            f"👤 <b>Buyer</b>: @{buyer_username}\n\n"
+            f"ℹ️ <b>Actions</b>:\n"
+            f"• Wait for payment confirmation from administrator\n"
+            f"• After confirmation, ship the item\n"
+            f"• Click 'Item shipped' in the deal"
         )
-        logger.info(f"ℹ️ Seller @{seller_username} not in bot - buyer instructed to share link for deal {deal_id}")
+        seller_notified = await notify_seller(
+            message.bot, 
+            seller_data, 
+            seller_message, 
+            deal_id
+        )
+        
+        if seller_notified:
+            logger.info(f"✅ Seller notified via bot for deal {deal_id}")
+        else:
+            # Seller not in system - ask buyer to send link
+            bot_username = (await message.bot.get_me()).username
+            bot_link = f"https://t.me/{bot_username}"
+            
+            await message.answer(
+                f"📣 <b>Seller is not in the system</b>\n\n"
+                f"Seller @{seller_username} is registered in our database but hasn't started the bot yet.\n\n"
+                f"🔗 <b>Please send them this bot link:</b>\n"
+                f"<code>{bot_link}</code>\n\n"
+                f"📝 <b>And inform them about the deal:</b>\n"
+                f"• Deal ID: <code>{deal_id}</code>\n"
+                f"• Amount: {data['amount']} {data['crypto_type']}\n"
+                f"• Item: {message.text}\n\n"
+                f"Once they start the bot, they will be automatically connected to this deal "
+                f"and will receive all future notifications.",
+                parse_mode="HTML"
+            )
+            logger.info(f"ℹ️ Seller @{seller_username} not in bot - buyer instructed to share link for deal {deal_id}")
     
     # 🔔 NOTIFY ADMINS ABOUT NEW DEAL
     try:
@@ -370,7 +352,7 @@ async def process_description(message: Message, state: FSMContext):
             "🆕 <b>NEW DEAL CREATED</b>\n\n"
             f"📋 <b>Deal ID</b>: <code>{deal_id}</code>\n"
             f"👤 <b>Buyer</b>: @{buyer_username}\n"
-            f"👥 <b>Seller</b>: @{seller_username}\n"  # ✅ FIXED: Now seller_username is guaranteed
+            f"👥 <b>Seller</b>: @{seller_username}\n"
             f"💰 <b>Amount</b>: {data['amount']} {data['crypto_type']}\n"
             f"💸 <b>With fee</b>: {data['amount_with_commission']:.8f} {data['crypto_type']}\n"
             f"📦 <b>Item</b>: {message.text}\n"
