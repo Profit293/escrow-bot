@@ -97,12 +97,8 @@ async def process_seller(message: Message, state: FSMContext):
             
             # Создаем ПОСТОЯННОГО пользователя в базе
             await create_user(
-                user_id=temp_seller_id,
-                username=seller_username,
-                telegram_id=None,  # Отсутствует telegram_id - значит не зарегистрирован в боте
-                first_name=f"Seller_{seller_username}",
-                last_name=None,
-                registration_date=datetime.now().isoformat()
+                telegram_id=temp_seller_id,  # ✅ исправлено user_id → telegram_id
+                username=seller_username
             )
             
             # Проверяем что пользователь создан
@@ -249,12 +245,8 @@ async def process_description(message: Message, state: FSMContext):
         # Создаем ПОСТОЯННУЮ запись покупателя в базе
         try:
             await create_user(
-                user_id=message.from_user.id,
-                username=message.from_user.username or f"user_{message.from_user.id}",
-                telegram_id=message.from_user.id,
-                first_name=message.from_user.first_name or "Buyer",
-                last_name=message.from_user.last_name,
-                registration_date=datetime.now().isoformat()
+                telegram_id=message.from_user.id,  # ✅ исправлено user_id → telegram_id
+                username=message.from_user.username or f"user_{message.from_user.id}"
             )
             buyer = await get_user_by_id(message.from_user.id)
             logger.info(f"✅ Created PERMANENT buyer record: {message.from_user.id}")
